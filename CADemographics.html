@@ -1,0 +1,856 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CADemographicMaps</title>
+    <style>
+        html,
+        body,
+        #viewDiv {
+          padding: 0;
+          margin: 0;
+          height: 100%;
+          width: 100%;
+          overflow: hidden;
+        }
+  
+        .esri-ui-top-right {
+          max-height: 100%;
+        }
+  
+        #queryDiv,
+        #resultDiv {
+          min-width: 300px;
+          font-size: 14px;
+          padding: 10px;
+          display: none;
+          overflow: scroll;
+        }
+  
+        .geometry-options {
+          display: flex;
+          flex-direction: row;
+        }
+        .geometry-button {
+          flex: 1;
+          border-style: solid;
+          border-width: 1px;
+          border-image: none;
+        }
+        .geometry-button-selected {
+          background:#4c4c4c;
+          color: #ffffff;
+        }
+  
+        #bufferNum {
+          width: 90%;
+          margin: 2.5em auto 0;
+        }
+  
+        .count {
+          white-space: nowrap;
+          font-size: 14px;
+          font-weight: bold;
+          display: inline-block;
+        }
+        
+        
+    </style>
+    
+    <!-- Load the Chart.js library -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/2.8.0/Chart.min.js"></script>
+    <link
+      rel="stylesheet"
+      href="https://js.arcgis.com/4.15/esri/themes/light/main.css"
+    />
+    <script src="https://js.arcgis.com/4.15/"></script>
+    <script>
+        require([
+          "esri/Map",
+          "esri/views/MapView",
+          "esri/layers/FeatureLayer",
+          "esri/renderers/DotDensityRenderer",
+          "esri/widgets/Legend",
+          "esri/widgets/Bookmarks",
+          "esri/widgets/Expand",
+          "esri/widgets/Search",
+          "esri/widgets/ScaleBar",
+          "esri/layers/GraphicsLayer",
+          "esri/widgets/Sketch/SketchViewModel",
+          "esri/widgets/Slider",
+          "esri/widgets/LayerList",
+          "esri/geometry/geometryEngine",
+          "esri/Graphic",
+          "esri/core/promiseUtils",
+          "esri/tasks/QueryTask",
+          "esri/tasks/support/Query"
+        ], function(Map, MapView,FeatureLayer,DotDensityRenderer,
+        Legend, Bookmarks, Expand, Search,ScaleBar,
+        GraphicsLayer,SketchViewModel,Slider,LayerList,geometryEngine,Graphic,
+        promiseUtils,QueryTask,Query) {
+    
+          var map = new Map({
+            basemap: "dark-gray-vector"
+          });
+          var view = new MapView({
+            container: "viewDiv",
+            map: map,
+            center: [-122,37],
+            zoom: 6,
+            highlightOptions: {
+                fillOpacity: 0,
+                color: [255, 255, 255]
+            },
+            popup: {
+                dockEnabled: true,
+                dockOptions: {
+                    position: "top-right",
+                    breakpoint: false
+                }
+            },
+            //constraints: {maxScale: 35000}
+          });
+
+          //var scaleBar = new ScaleBar({view: view});
+          //view.ui.add(scaleBar, {position: "bottom"});
+
+        // add a GraphicsLayer for the sketches and the buffer
+          const sketchLayer = new GraphicsLayer();
+          const bufferLayer = new GraphicsLayer();
+          view.map.addMany([bufferLayer, sketchLayer]);
+
+          const dotdensRender = new DotDensityRenderer({
+              dotValue: 50,
+              outline: null,
+              referenceScale: 577790,
+              legendOptions: {unit: "people"},
+              attributes: [
+                  {field: "HISPPOP_CY",color:"#e8ca0d",label:"Hispanic"},
+                  {field: "NHSPWHT_CY",color:"#f23c3f",label:"White"},
+                  {field: "NHSPBLK_CY",color:"#00b6f1",label:"Black/African American"},
+                  {field: "NHSPAI_CY",color:"#ff7fe9",label:"American Indian/Alaska Native"},
+                  {field: "NHSPASN_CY",color:"#32ef94",label:"Asian"},
+                  {field: "NHSPPI_CY",color:"#e2c4a5",label:"Pacific Islander"},
+                  {field: "NHSPOTH_CY",color:"#ff6a00",label:"Other Race"},
+                  {field: "NHSPMLT_CY",color:"#96f7ef",label:"Multiple Races"},
+              ]
+          });
+    
+          const DemographicLyrurl = "https://services.arcgis.com/P3ePLMYs2RVChkJx/ArcGIS/rest/services/AGOL_Base_2018_Final/FeatureServer/4";
+          const DemographicLyr = new FeatureLayer({
+              url: DemographicLyrurl,
+              definitionExpression: "STATE_NAME = 'California'",
+              minScale: 0,
+              maxScale: 0,
+              title: "Population Density by Race",
+              renderer: dotdensRender,
+
+              popupTemplate: {
+                  title: "Census Tract: {ID}",
+                  expressionInfos:[
+                      {name: "PCT_White", title: "%White", expression: "Round(($feature.NHSPWHT_CY / $feature.RACEBASECY)*100,2)"},
+                      {name: "PCT_Hispanic", title: "%Hispanic", expression: "Round(($feature.HISPPOP_CY / $feature.RACEBASECY)*100,2)"},
+                      {name: "PCT_BLK", title: "%Black/African American", expression: "Round(($feature.NHSPBLK_CY / $feature.RACEBASECY)*100,2)"},
+                      {name: "PCT_Asian", title: "%Asian", expression: "Round(($feature.NHSPASN_CY / $feature.RACEBASECY)*100,2)"},
+                      {name: "PCT_AIAKN", title: "%American Indian/Alaska Native", expression: "Round(($feature.NHSPAI_CY / $feature.RACEBASECY)*100,2)"},
+                      {name: "PCT_PacificIslander", title: "%Pacific Islander", expression: "Round(($feature.NHSPPI_CY / $feature.RACEBASECY)*100,2)"},
+                      {name: "PCT_Other", title: "%Other", expression: "Round(($feature.NHSPOTH_CY / $feature.RACEBASECY)*100,2)"},
+                      {name: "PCT_MultiRace", title: "%Multiple Races", expression: "Round(($feature.NHSPMLT_CY / $feature.RACEBASECY)*100,2)"}
+                  ],
+                  content: [
+                      {
+                          type: "text",
+                          text: "<b>The Census tract has a total population {TOTPOP_CY}</b>"
+                          // with a diversity index <sup>*</sup> {DIVINDX_CY} <br> 
+                          //<sup><i>*ESRI diversity index ranges from 0 (no diversity) to 100 (complete diversity)</i><sup>
+
+                      },
+                      {
+                          type: "fields",
+                          fieldInfos: [
+                              {fieldName: "expression/PCT_White",label:"%White"},
+                              {fieldName: "expression/PCT_Hispanic",label:"%Hispanic"},
+                              {fieldName: "expression/PCT_BLK",label:"%Black/African American"},
+                              {fieldName: "expression/PCT_Asian",label:"%Asian"},
+                              {fieldName: "expression/PCT_AIAKN",label:"%American Indian/Alaska Native"},
+                              {fieldName: "expression/PCT_PacificIslander",label:"%Pacific Islander"},
+                              {fieldName: "expression/PCT_Other",label:"%Other"},
+                              {fieldName: "expression/PCT_MultiRace",label:"%Multiple Races"}
+                          ]
+                      }
+                  ], 
+              }
+          })
+          //map.add(DemographicLyr);
+
+          const defaultSym = {
+            type: "simple-fill",
+            outline: {
+              color: [128,128,128,0.2],
+              width: "0.5px"
+            }
+          };
+          const edurenderer = {
+            type: "simple",
+            symbol: defaultSym,
+            visualVariables: [{
+              type: "color",
+              field: "B15002_calc_pctLTHSE",
+              stops: [
+                {value:5, color: "#e1e1e1", label: "<5%"},
+                {value:10, color: "#b2b2b2", label: "<10%"},
+                {value:15, color: "#828282", label: "<15%"},
+                {value:20, color: "#4e4e4e", label: ">20%"}
+              ],
+            }]
+          };
+          const eduLyrurl = "https://services.arcgis.com/P3ePLMYs2RVChkJx/arcgis/rest/services/ACS_Educational_Attainment_Boundaries/FeatureServer/2";
+          const eduLyr = new FeatureLayer ({
+            url: eduLyrurl,
+            definitionExpression: "State = 'California'",
+            minScale: 0,
+            maxScale: 0,
+            title: "Education Level",
+            renderer: edurenderer,
+
+            popupTemplate: {
+                  title: "Census Tract: {GEOID}",
+                  content: [
+                      {
+                          type: "text",
+                          text: "<b>% of 25-year-old and over whose highest education completed < High School: {B15002_calc_pctLTHSE}</b>"
+                          // with a diversity index <sup>*</sup> {DIVINDX_CY} <br> 
+                          //<sup><i>*ESRI diversity index ranges from 0 (no diversity) to 100 (complete diversity)</i><sup>
+
+                      }, 
+                  ]
+              },
+
+          });
+         
+          const povertyurl = "https://services.arcgis.com/P3ePLMYs2RVChkJx/ArcGIS/rest/services/ACS_Poverty_by_Age_Boundaries/FeatureServer/2";
+          const povertyrenderer = {
+            type: "simple",
+            symbol: defaultSym,
+            visualVariables: [{
+              type: "color",
+              field: "B17020_calc_pctPovE",
+              stops: [
+                {value:5, color: "#94a1a3", label: "<5%"},
+                {value:10, color: "#7e8e91", label: "<10%"},
+                {value:15, color: "#697c7e", label: "<15%"},
+                {value:20, color: "#53696c", label: ">20%"}
+              ],
+            }]
+          };
+          const povertyLyr = new FeatureLayer({
+            url: povertyurl,
+            definitionExpression: "State = 'California'",
+            minScale: 0,
+            maxScale: 0,
+            title: "Poverty Level",
+            renderer: povertyrenderer,
+            popupTemplate: {
+                  title: "Census Tract: {GEOID}",
+                  content: [
+                      {
+                          type: "text",
+                          text: "<b>% of population whose income in the past 12 months is below poverty level: {B17020_calc_pctPovE}</b>"
+                          // with a diversity index <sup>*</sup> {DIVINDX_CY} <br> 
+                          //<sup><i>*ESRI diversity index ranges from 0 (no diversity) to 100 (complete diversity)</i><sup>
+
+                      }, 
+                  ]
+              },
+
+          });
+         
+          map.add(eduLyr);
+          map.add(povertyLyr);
+          map.add(DemographicLyr);
+          
+
+          my_legend = new Legend({view: view});
+          my_bkmark = new Bookmarks({view: view});
+          my_search = new Search({view: view});
+          view.ui.add([
+              new Expand ({
+                  view: view,
+                  content: my_search,
+                  group: "top-left",
+                  expandTooltip: "Search"
+              }),
+              new Expand ({
+                  view: view,
+                  content: my_bkmark,
+                  group: "top-left",
+                  expandTooltip: "Bookmarks"
+              })
+          ], "top-left");
+          view.ui.add([
+            new Expand ({
+                  view: view,
+                  content: my_legend,
+                  group: "top-left",
+                  expanded: true,
+                  expandTooltip: "Legend"
+              })
+            ],"top-left");
+          var lyrList = new Expand({    
+            view: view,
+            content: new LayerList({view: view}),
+            expanded: false,
+            expandTooltip: "Turn On/Off Layers",
+            group: "top-left"
+          });
+          view.ui.add(lyrList,"top-left");
+
+          let censuslyr = null;
+          let censuslyrView = null;
+          let edu_selected = null;
+          let edu_selected_View = null;
+          let povView = null;
+          let buffersize = 0;
+
+          queryDiv.style.display = "block";
+          view.whenLayerView(DemographicLyr).then(function(layerView){
+              censuslyrView = layerView;
+            });
+          view.whenLayerView(eduLyr).then(function(layerView){
+              edu_selected_View=layerView;
+            });
+          view.whenLayerView(povertyLyr).then(function(layerView){
+            povView=layerView;
+            });
+
+          view.watch("updating",function(updating){
+              if(!updating){
+                doQuery();
+              }
+          });
+
+          view.ui.add([queryDiv], "bottom-left");
+          view.ui.add([resultDiv], "top-right");
+
+          let sketchGeometry = null;
+          const sketchViewModel = new SketchViewModel({
+            layer: sketchLayer,
+            defaultUpdateOptions: {
+              tool: "reshape",
+              toggleToolOnClick: false
+            },
+            view:view,
+            //defaultCreateOptions: { hasZ: false }
+          });
+
+          sketchViewModel.on("create",function(event){
+            if (event.state === "complete"){
+              sketchGeometry = event.graphic.geometry;
+              //console.log(sketchGeometry);
+              doQuery();
+            }
+          });
+          sketchViewModel.on("update", function(event) {
+            if (event.state !== "cancel" && event.graphics.length) {
+              sketchGeometry = event.graphics[0].geometry;
+              doQuery();
+            }
+        });
+
+        //draw geometry buttons - use the selected geometry to sktech
+        document
+          .getElementById("point-geometry-button")
+          .addEventListener("click", geometryButtonsClickHandler);
+        document
+          .getElementById("line-geometry-button")
+          .addEventListener("click", geometryButtonsClickHandler);
+        document
+          .getElementById("polygon-geometry-button")
+          .addEventListener("click", geometryButtonsClickHandler);
+        
+        document
+          .getElementById("clearGeometry")
+          .addEventListener("click", clearGeometry);
+        
+        function geometryButtonsClickHandler(event) {
+          const geometryType = event.target.value;
+          clearGeometry();
+          sketchViewModel.create(geometryType);
+        }
+
+        const bufferNumSlider = new Slider({
+          container: "bufferNum",
+          min: 0,
+          max: 10,
+          steps: 1,
+          visibleElements: {
+            labels: true
+          },
+          precision: 0,
+          labelFormatFunction: function(value, type) {
+            return value.toString() + "mi";
+          },
+          values: [0]
+        });
+        // get user entered values for buffer
+        bufferNumSlider.on(
+          ["thumb-change", "thumb-drag"],
+          bufferVariablesChanged
+        );
+
+        function bufferVariablesChanged(event) {
+          buffersize = event.value;
+          doQuery();
+        }
+
+        function updateBufferGraphic(buffer) {
+          // add a polygon graphic for the buffer
+          if (buffer > 0) {
+            var bufferGeometry = geometryEngine.geodesicBuffer(
+              sketchGeometry,
+              buffer,
+              "miles"
+            );
+            if (bufferLayer.graphics.length === 0) {
+              bufferLayer.add(
+                new Graphic({
+                  geometry: bufferGeometry,
+                  symbol: sketchViewModel.polygonSymbol
+                })
+              );
+            } else {
+              bufferLayer.graphics.getItemAt(0).geometry = bufferGeometry;
+            }
+          } else {
+            bufferLayer.removeAll();
+          }
+        }
+
+        function clearGeometry() {
+          sketchGeometry = null;
+          sketchViewModel.cancel();
+          sketchLayer.removeAll();
+          bufferLayer.removeAll();
+          buffersize = 0;
+          clearHighlighting();
+          //clearCharts();
+          resultDiv.style.display = "none";//Element will not be displayed
+        }
+        
+        const qCensus = new Query();
+        const qEdu = new Query();
+        const qPoverty = new Query();
+        qCensus.returnGeometry = qEdu.returnGeometry = qPoverty.returnGeometry = true;
+        qCensus.outFields = qEdu.outFields = qPoverty.outFields = ["*"];
+
+        var censusChart = null;
+        var eduChart = null;
+
+        function doQuery(){
+          if (!sketchGeometry){
+            return;
+          }
+          resultDiv.style.display = "block";
+          updateBufferGraphic(buffersize);
+          qCensus.geometry = sketchGeometry;
+          qCensus.distance = buffersize;
+          qCensus.units = "miles";
+          qCensus.spatialRelationship = "intersects";
+
+          qEdu.geometry = sketchGeometry;
+          qEdu.distance = buffersize;
+          qEdu.units = "miles";
+          qEdu.spatialRelationship = "intersects";
+
+          qPoverty.geometry = sketchGeometry;
+          qPoverty.distance = buffersize;
+          qPoverty.units = "miles";
+          qPoverty.spatialRelationship = "intersects";
+
+          //define stats
+          const statDef_census = [
+            {
+              onStatisticField: "NHSPWHT_CY",
+              outStatisticFieldName: "SumWhite",
+              statisticType: "sum"
+            },
+            {
+              onStatisticField: "NHSPBLK_CY",
+              outStatisticFieldName: "SumBLK",
+              statisticType: "sum"
+            },
+            {
+              onStatisticField: "HISPPOP_CY",
+              outStatisticFieldName: "SumHispanic",
+              statisticType: "sum"
+            },
+            {
+              onStatisticField: "NHSPAI_CY",
+              outStatisticFieldName: "SumAIAK",
+              statisticType: "sum"
+            },
+            {
+              onStatisticField: "NHSPASN_CY",
+              outStatisticFieldName: "SumAsian",
+              statisticType: "sum"
+            },
+            {
+              onStatisticField: "NHSPPI_CY",
+              outStatisticFieldName: "SumPacific",
+              statisticType: "sum"
+            },
+            {
+              onStatisticField: "NHSPOTH_CY",
+              outStatisticFieldName: "SumOther",
+              statisticType: "sum"
+            },
+            {
+              onStatisticField: "NHSPMLT_CY",
+              outStatisticFieldName: "SumMulti",
+              statisticType: "sum"
+            },
+            {
+              onStatisticField: "RACEBASECY",
+              outStatisticFieldName: "SumTotal",
+              statisticType: "sum"
+            },
+          ];
+          const statDef_edu = [
+          {
+              onStatisticField: "B15002_calc_pctLTHSE",
+              outStatisticFieldName: "AvgPctLessThanHighSchool",
+              statisticType: "avg"
+            },
+/*             {
+              onStatisticField: "B15002_caB15002_011E",
+              outStatisticFieldName: "AvgPctSomeCollege",
+              statisticType: "sum"
+            },
+            {
+              onStatisticField: "B15002_calc_pctAAM",
+              outStatisticFieldName: "SumHighSchool",
+              statisticType: "sum"
+            },
+            {
+              onStatisticField: "B15002_calc_numSomeCollE",
+              outStatisticFieldName: "SumSomeCollege",
+              statisticType: "sum"
+            },
+            {
+              onStatisticField: "B15002_calc_numAAE",
+              outStatisticFieldName: "SumAssociateDeg",
+              statisticType: "sum"
+            },
+            {
+              onStatisticField: "B15002_calc_numGEBAE",
+              outStatisticFieldName: "SumBAHigher",
+              statisticType: "sum"
+            },
+            {
+              onStatisticField: "B15002_001E",
+              outStatisticFieldName: "SumTotal_edu",
+              statisticType: "sum"
+            },
+           */];
+          const statDef_pov = [
+             {
+              onStatisticField: "B17020_calc_pctPovE",
+              outStatisticFieldName: "AvgPctBlwPoverty",
+              statisticType: "avg"
+              },
+            ];
+          
+          qCensus.outStatistics = statDef_census;
+          qEdu.outStatistics = statDef_edu;
+          qPoverty.outStatistics = statDef_pov;
+
+          //console.log(qEdu);
+          //console.log(qCensus);
+
+/*            view.whenLayerView(eduLyr).then(function(layerView){
+            layerView.queryObjectIds(qEdu)
+            .then(highlightEdu)
+          });  */
+
+          edu_selected_View
+          .queryObjectIds(qEdu)
+          .then(highlightEdu)
+          .catch(function(error){
+            if (error.name === "AbortError") {
+              return;
+            }
+            console.error(error);
+          });
+
+          povView
+          .queryObjectIds(qPoverty)
+          .then(highlightPov)
+          .catch(function(error){
+            if (error.name === "AbortError") {
+              return;
+            }
+            console.error(error);
+          });
+
+          censuslyrView
+            .queryObjectIds(qCensus)
+            .then(highlightBlocks)
+            .catch(function(error) {
+            if (error.name === "AbortError") {
+              return;
+            }
+            console.error(error);
+          });
+
+          censuslyrView.queryFeatures(qCensus).then(function(result){
+            //console.log(result.features[0]);
+            const allStats = result.features[0].attributes;
+            updateChart(censusChart, [
+              allStats.SumWhite,
+              allStats.SumBLK,
+              allStats.SumHispanic,
+              allStats.SumAIAK,
+              allStats.SumAsian,
+              allStats.SumPacific,
+              allStats.SumOther,
+              allStats.SumMulti,
+            ]);
+          },console.error);
+
+
+          //console.log(edu_selected_View);
+          edu_selected_View.queryFeatures(qEdu).then(function(result2){
+            //console.log(result2.features[0].attributes);
+            displayvalue =result2.features[0].attributes.AvgPctLessThanHighSchool.toFixed(1);
+            document.getElementById("count2").innerHTML = displayvalue;
+/*             const allStats2 = result2.features[0].attributes;
+             if (allStats2.SumTotal_edu != null){
+              updateChart(eduChart, [
+              allStats2.SumLessHighSchool/allStats2.SumTotal_edu*100,
+              allStats2.SumHighSchool/allStats2.SumTotal_edu*100,
+              allStats2.SumSomeCollege/allStats2.SumTotal_edu*100,
+              allStats2.SumAssociateDeg/allStats2.SumTotal_edu*100,
+              allStats2.SumBAHigher/allStats2.SumTotal_edu*100]);
+             }
+            updateChart(eduChart, [
+              allStats2.SumLessHighSchool/allStats2.SumTotal_edu*100,
+              allStats2.SumHighSchool/allStats2.SumTotal_edu*100,
+              allStats2.SumSomeCollege/allStats2.SumTotal_edu*100,
+              allStats2.SumAssociateDeg/allStats2.SumTotal_edu*100,
+              allStats2.SumBAHigher/allStats2.SumTotal_edu*100,
+            ]); */
+          });
+
+          povView.queryFeatures(qPoverty).then(function(result3){
+            console.log(result3.features[0].attributes);
+            displayvalue =result3.features[0].attributes.AvgPctBlwPoverty.toFixed(1);
+            document.getElementById("count3").innerHTML = displayvalue;
+          });
+
+        }
+
+
+        var highlightHandle_census = null;
+        var highlightHandle_edu = null;
+        var highlightHandle_pov = null;
+        function clearHighlighting() {
+          if (highlightHandle_census) {
+            highlightHandle_census.remove();
+            highlightHandle_census = null;
+          }
+          if (highlightHandle_edu){
+            highlightHandle_edu.remove();
+            highlightHandle_edu = null;
+          }
+          if (highlightHandle_pov){
+            highlightHandle_pov.remove();
+            highlightHandle_pov = null;
+          }
+          highlightHandle_census = null;
+          highlightHandle_edu = null;
+          highlightHandle_pov = null;
+        };
+        function highlightBlocks(objectIds) {
+          // Remove any previous highlighting
+          clearHighlighting();
+          highlightHandle_census = censuslyrView.highlight(objectIds);
+          document.getElementById("count").innerHTML = objectIds.length;
+        }
+        function highlightEdu(objectIds) {
+          // Remove any previous highlighting
+          clearHighlighting();
+          highlightHandle_edu = edu_selected_View.highlight(objectIds);
+        }
+        function highlightPov(objectIds) {
+          // Remove any previous highlighting
+          clearHighlighting();
+          highlightHandle_pov = povView.highlight(objectIds);
+        }
+
+
+        //create or update charts
+        function updateChart(chart, dataValues) {
+          chart.data.datasets[0].data = dataValues;
+          chart.update();
+        }
+
+        /* function updateChart2(chart, dataValues1, dataValues2, dataValue3) {
+          chart.data.datasets[0].data = [dataValues1[0], dataValues2[0],dataValue3[0]];
+          chart.data.datasets[1].data = [dataValues1[1], dataValues2[1],dataValue3[1]];
+          chart.data.datasets[2].data = [dataValues1[2], dataValues2[2],dataValue3[2]];
+          chart.update();
+        } */
+        /*
+        {field: "HISPPOP_CY",color:"#e8ca0d",label:"Hispanic"},
+                  {field: "NHSPWHT_CY",color:"#f23c3f",label:"White"},
+                  {field: "NHSPBLK_CY",color:"#00b6f1",label:"Black/African American"},
+                  {field: "NHSPAI_CY",color:"#ff7fe9",label:"American Indian/Alaska Native"},
+                  {field: "NHSPASN_CY",color:"#32ef94",label:"Asian"},
+                  {field: "NHSPPI_CY",color:"#e2c4a5",label:"Pacific Islander"},
+                  {field: "NHSPOTH_CY",color:"#ff6a00",label:"Other Race"},
+                  {field: "NHSPMLT_CY",color:"#96f7ef",label:"Multiple Races"},
+        */
+        function createCensusChart(){
+          const censusCanvas = document.getElementById("pop-chart");
+          var mydata = {
+            labels: ["White","Black","Hispanic","American Indian/Alaska","Asian","Pacific Islander",
+                    "Other Race","Multiple Races"],
+            datasets: [
+              {
+                label: "Racial Groups",
+                backgroundColor: ["#f23c3f","#00b6f1","#e8ca0d","#ff7fe9",
+                                  "#32ef94","#e2c4a5","#ff6a00","#96f7ef"],
+                data:[0,0,0,0,0,0,0,0]
+              }
+            ]
+          };
+          censusChart = new Chart(
+            censusCanvas.getContext("2d"),
+            {
+              type: "pie",
+              data: mydata,
+              options:{
+                responsive: false,
+                legend:{
+                  display: false,
+                  position:'right'
+                },
+                title:{
+                  display: true,
+                  text: "Population% by Race"
+                },
+                scaleBeginAtZero : true
+              }
+            }
+          );
+        }
+        function createEduChart() {
+          const educanvas = document.getElementById("edu-chart");
+          var chartData = {
+            labels: ['Less than highschool', 'Highschool', 'Some college',
+                    'Associate degree','Bachelor or higher'],
+            datasets:[
+              {
+                label: "Education Levels",
+                backgroundColor: ["#CC0035","#CC0035","#CC0035","#CC0035","#CC0035"],
+                data:[10,0,0,0,0]
+              },
+            ]
+          };
+          eduChart = new Chart(educanvas.getContext("2d"), {
+            type: "bar",
+            data: chartData,
+            options: {
+              
+              responsive: true,
+              legend: {
+                display: true
+              },
+              title: {
+                display: true,
+                text: "Education levels"
+              }
+            }
+          });
+        }
+        function clearCharts(){
+          updateChart(censusChart, [0,0,0,0,0,0,0,0]);
+          updateChart(eduChart,[0,0,0,0,0])
+          document.getElementById("count").innerHTML = 0;
+          document.getElementById("count2").innerHTML = 0;
+        }
+        
+        createCensusChart();
+        //createEduChart();
+        
+
+
+
+
+});
+    </script>
+</head>
+<body>
+    <div id="viewDiv"></div>
+    <div id="queryDiv" class="esri-widget">
+      <b>Query by geometry</b><br />
+      <br />Draw a geometry to query by:
+      <div class="geometry-options">
+        <button
+          class="esri-widget--button esri-icon-map-pin geometry-button"
+          id="point-geometry-button"
+          value="point"
+          title="Query by point"
+        ></button>
+        <button
+          class="esri-widget--button esri-icon-polyline geometry-button"
+          id="line-geometry-button"
+          value="polyline"
+          title="Query by line"
+        ></button>
+        <button
+          class="esri-widget--button esri-icon-polygon geometry-button"
+          id="polygon-geometry-button"
+          value="polygon"
+          title="Query by polygon"
+        ></button>
+      </div>
+      <br />
+      <div class="tooltip">
+        <label for="bufferNum">Set a geometry buffer size:</label>
+        <div id="bufferNum"></div>
+      </div>
+      <br />
+      <button class="esri-button" id="clearGeometry" type="button">
+        Clear
+      </button>
+    </div>
+    <div id="resultDiv" class="esri-widget">
+      <div class="count">
+        Selected Census Blocks:
+        <div class="count" id="count">0</div>
+      </div>
+      <br>
+      <div class="count">
+        Average % of the population with less than highschool degree:
+        <div class="count" id="count2" style="color:red">0</div>
+      </div>
+      <br>
+      <div class="count">
+        Average % of the population living below poverty line:
+        <div class="count" id="count3" style="color:blue">0</div>
+      </div>
+      <div class="charts">
+        <div>
+          <canvas id="pop-chart" height="250" width="260" />
+        </div>
+        <div id="feature-node" class = "esri-widget"></div>
+<!--         <div>
+          <canvas id="edu-chart" width="250" height="300" />
+        </div> -->
+      </div>
+
+    </div>
+</body>
+</html>
